@@ -1,0 +1,99 @@
+# namespace - это пространство имен, куда будет развернуто приложение
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-app
+
+---
+# Deployment отвечает за развертывание подов
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app-deployment
+  namespace: my-app
+spec:
+  replicas: 4  # Начальное количество реплик для обработки пиковой нагрузки
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: my-app-container
+        image: my-app-image:latest  # Укажите здесь образ вашего приложения
+        resources:
+          requests:
+            cpu: "500m"  # Запрашиваем 0.5 CPU на инициализацию
+            memory: "128Mi"  # Постоянный запрос памяти
+          limits:
+            cpu: "1"  # Ограничиваем максимум на случай пиковой нагрузки
+            memory: "128Mi"  # Ограничиваем по памяти
+        # прописываем liveness и readiness пробу
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10  # Задержка перед первой проверкой
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10  # Задержка перед первой проверкой
+          periodSeconds: 5
+
+---
+# Horizontal Pod Autoscaler для автоматической настройки числа подов по нагрузке
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app-hpa
+  namespace: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app-deployment
+  minReplicas: 4  # Минимальное количество реплик, чтобы обеспечить отказоустойчивость
+  maxReplicas: 10  # Максимальное количество реплик для масштабирования
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50  # Автошкалирование при использовании CPU более 50%
+
+---
+# Vertical Pod Autoscaler для автоматической настройки ресурсов подов
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: my-app-vpa
+  namespace: my-app
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app-deployment
+  updatePolicy:
+    updateMode: "Auto"  # Автоматически применяет обновления
+
+---
+# Service для доступа к приложению
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-service
+  namespace: my-app
+spec:
+  selector:
+    app: my-app
+  ports:
+  - protocol: TCP
+    port: 80  # Порт для внешнего доступа
+    targetPort: 8080  # Порт, на котором работает приложение в поде
+  type: LoadBalancer  # Используем LoadBalancer для доступа извне
